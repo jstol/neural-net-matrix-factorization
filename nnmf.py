@@ -1,3 +1,6 @@
+#!/usr/bin/env python2.7
+from __future__ import absolute_import, print_function
+"""NNMF model."""
 # Standard modules
 import sys
 from math import sqrt
