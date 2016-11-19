@@ -1,24 +1,29 @@
+# Standard modules
+import sys
+from math import sqrt
+# Third party modules
 import tensorflow as tf
 import pandas as pd
-from math import sqrt
-import sys
+import numpy as np
 
 # Various constants
 model_filename = 'model/model.ckpt'
+early_stop_max_iter = 5
+max_iters = 1000
+batch_size = None
+num_users = 943
+num_items = 1682
+# Model/loss params
 lam = 0.01
 learning_rate = 0.001
 D = 10
 Dprime = 60
-batch_size = 25000
 # num_hidden = 3
 hidden_units_per_layer = 50
 latent_normal_init_params = {
     'mean': 0.0,
     'stddev': 0.1,
 }
-# TODO infer this from the dataframe?
-num_users = 943
-num_items = 1682
 
 def weight_init_range(n_in, n_out):
     range = 4.0*sqrt(6.0)/sqrt(n_in + n_out)
@@ -94,12 +99,33 @@ if __name__ == '__main__':
             data['user_id'] = data['user_id'] - 1
             data['item_id'] = data['item_id'] - 1
 
-            # Split data set
-            train_ratio = 0.98
-            num_train = int(len(data) * train_ratio)
-            num_test = len(data) - num_train
-            train_data = data.head(num_train)
+            # Shuffle
+            data = (data.iloc[np.random.permutation(len(data))]).reset_index(drop=True)
+
+            # Split data set into (all) train/test
+            all_train_ratio = 0.98
+            num_all_train = int(len(data)*all_train_ratio)
+            num_test = len(data)-num_all_train
+            all_train_data = data.head(num_all_train)
             test_data = data.tail(num_test)
+
+            # Split up (all) train data into train/validation
+            train_ratio = 0.9
+            num_train = int(len(all_train_data)*train_ratio)
+            num_valid = len(all_train_data)-num_train
+            train_data = all_train_data.head(num_train)
+            valid_data = all_train_data.tail(num_valid)
+
+            print("Data subsets:")
+            print("Train: {}".format(len(train_data)))
+            print("Validation: {}".format(len(valid_data)))
+            print("Test: {}".format(len(test_data)))
+
+            # Set up validation data
+            valid_user_ids = valid_data['user_id']
+            valid_item_ids = valid_data['item_id']
+            valid_ratings = valid_data['rating']
+            valid_feed_dict = {user_index: valid_user_ids, item_index: valid_item_ids, r_target: valid_ratings}
 
             # Set up test data
             test_user_ids = test_data['user_id']
@@ -121,11 +147,13 @@ if __name__ == '__main__':
             ratings = batch['rating']
             feed_dict = {user_index: user_ids, item_index: item_ids, r_target: ratings}
             train_error = sess.run(rmse, feed_dict=feed_dict)
-            test_error = sess.run(rmse, feed_dict=test_feed_dict)
-            print(train_error, test_error)
+            valid_error = sess.run(rmse, feed_dict=valid_feed_dict)
+            print(train_error, valid_error)
 
             # Optimize
-            for i in xrange(1000):
+            prev_valid_error = float("Inf")
+            early_stop_iters = 0
+            for i in xrange(max_iters):
                 batch = train_data.sample(batch_size) if batch_size else train_data
 
                 user_ids = batch['user_id']
@@ -138,13 +166,23 @@ if __name__ == '__main__':
                 sess.run(latent_train_step, feed_dict=feed_dict)
                 # Evaluate
                 train_error = sess.run(rmse, feed_dict=feed_dict)
-                test_error = sess.run(rmse, feed_dict=test_feed_dict)
-                print(train_error, test_error)
-                saver.save(sess, model_filename)
+                valid_error = sess.run(rmse, feed_dict=valid_feed_dict)
+                print(train_error, valid_error)
 
-            # Save model
-            save_path = saver.save(sess, model_filename)
-            print("Model saved in file: {}".format(save_path))
+                # Checkpointing/early stopping
+                early_stop_iters += 1
+                if valid_error < prev_valid_error:
+                    prev_valid_error = valid_error
+                    early_stop_iters = 0
+                    saver.save(sess, model_filename)
+                elif early_stop_iters == early_stop_max_iter:
+                    print("Early stopping ({} vs. {})...".format(prev_valid_error, valid_error))
+                    break
+
+            print('Loading best checkpointed model')
+            saver.restore(sess, model_filename)
+            test_error = sess.run(rmse, feed_dict=test_feed_dict)
+            print("Final test RMSE: {}".format(test_error))
 
         elif sys.argv[1] == 'predict':
             print('Loading model')
