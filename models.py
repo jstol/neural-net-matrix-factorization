@@ -183,17 +183,14 @@ class SVINNMF(_NNMFBase):
         self.p_Vprime = self.p_Uprime = tf.contrib.distributions.MultivariateNormalDiag(mu=tf.zeros(shape=[self.Dprime]),
                                                                         diag_stdev=tf.ones([self.Dprime]))
 
-        # posterior (q) - note: accessing actually generates samples
+        # posterior (q) - note: accessing StochasticTensors actually generates samples
         # TODO figure out if these handle reparameterization for us (pretty sure it does)
         # TODO figure out why we can't use MultivariateNormalFullTensor here?
+        # Note: can get underlying distributions as needed: ex. self.p_U_given_X = self.U.distribution
         self.U = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.U_mu_lu, diag_stdev=self.U_sigma_lu)
-        self.p_U_given_X = self.U.distribution
         self.Uprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Uprime_mu_lu, diag_stdev=self.Uprime_sigma_lu)
-        self.p_Uprime_given_X = self.Uprime.distribution
         self.V = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.V_mu_lu, diag_stdev=self.V_sigma_lu)
-        self.p_V_given_X = self.V.distribution
         self.Vprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Vprime_mu_lu, diag_stdev=self.Vprime_sigma_lu)
-        self.p_Vprime_given_X = self.Vprime.distribution
 
         # MLP ("f")
         self.f_input_layer = tf.concat(concat_dim=1,
