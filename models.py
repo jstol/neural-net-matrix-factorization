@@ -142,7 +142,6 @@ class SVINNMF(_NNMFBase):
         self.r_target = tf.placeholder(tf.float32, [None])
 
         # Latents
-        # NOTE: distributions.Normal is scalar, need to use distributions.MultivariateNormalXXX for multivariate
         self.U_mu = tf.Variable(tf.truncated_normal(
             [self.num_users, self.D], **self.latent_normal_init_params))
         self.U_sigma = tf.Variable(tf.random_uniform(
