@@ -116,8 +116,7 @@ class NNMF(_NNMFBase):
         self.loss = tf.add(reconstruction_loss, tf.scalar_mul(self.lam, reg))
 
         # Optimizer
-        # self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
-        self.optimizer = tf.train.AdamOptimizer()
+        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
         # Optimize the MLP weights
         f_train_step = self.optimizer.minimize(self.loss, var_list=self.mlp_weights.values())
         # Then optimize the latents
@@ -185,12 +184,16 @@ class SVINNMF(_NNMFBase):
                                                                         diag_stdev=tf.ones([self.Dprime]))
 
         # posterior (q) - note: accessing actually generates samples
-        # TODO figure out if these handle reparameterization for us
-        # TODO figureout why we can't use MultivariateNormalFullTensor here?
+        # TODO figure out if these handle reparameterization for us (pretty sure it does)
+        # TODO figure out why we can't use MultivariateNormalFullTensor here?
         self.U = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.U_mu_lu, diag_stdev=self.U_sigma_lu)
+        self.p_U_given_X = self.U.distribution
         self.Uprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Uprime_mu_lu, diag_stdev=self.Uprime_sigma_lu)
+        self.p_Uprime_given_X = self.Uprime.distribution
         self.V = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.V_mu_lu, diag_stdev=self.V_sigma_lu)
+        self.p_V_given_X = self.V.distribution
         self.Vprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Vprime_mu_lu, diag_stdev=self.Vprime_sigma_lu)
+        self.p_Vprime_given_X = self.Vprime.distribution
 
         # MLP ("f")
         self.f_input_layer = tf.concat(concat_dim=1,
@@ -217,10 +220,14 @@ class SVINNMF(_NNMFBase):
         self.optimize_steps = [self.optimizer.minimize(self.loss)]
 
     def eval_rmse(self, data):
-        # TODO this is actually neg log likelihood, fix
         user_ids = data['user_id']
         item_ids = data['item_id']
         ratings = data['rating']
 
         feed_dict = {self.user_index: user_ids, self.item_index: item_ids, self.r_target: ratings}
-        return self.sess.run(tf.reduce_mean(tf.neg(self.log_likelihood)), feed_dict=feed_dict)
+        rmse = tf.sqrt(tf.reduce_mean(tf.square(tf.sub(self.p_r_given_Z.mean(), self.r_target))))
+        return self.sess.run(rmse, feed_dict=feed_dict)
+
+    def predict(self, user_id, item_id):
+        rating = self.sess.run(self.p_r_given_Z.mean(), feed_dict={self.user_index: [user_id], self.item_index: [item_id]})
+        return rating[0][0]

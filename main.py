@@ -11,7 +11,7 @@ import numpy as np
 from models import NNMF, SVINNMF
 
 # Various constants
-early_stop_max_iter = 100
+early_stop_max_iter = 50
 max_iters = 10000
 batch_size = None
 num_users = 943
