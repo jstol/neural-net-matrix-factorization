@@ -8,10 +8,10 @@ import tensorflow as tf
 import pandas as pd
 import numpy as np
 # Package modules
-from models import NNMF
+from models import NNMF, SVINNMF
 
 # Various constants
-early_stop_max_iter = 50
+early_stop_max_iter = 100
 max_iters = 10000
 batch_size = None
 num_users = 943
@@ -25,7 +25,8 @@ if __name__ == '__main__':
     with tf.Session() as sess:
         # Define computation graph & Initialize
         print('Building network & initializing variables')
-        model = NNMF(num_users, num_items)
+        # model = NNMF(num_users, num_items)
+        model = SVINNMF(num_users, num_items)
         model.init_sess(sess)
         saver = tf.train.Saver()
 

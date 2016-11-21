@@ -5,6 +5,7 @@ from __future__ import absolute_import, print_function
 from math import sqrt
 # Third party modules
 import tensorflow as tf
+import tensorflow.contrib.bayesflow as bf
 
 class _NNMFBase(object):
     def __init__(self, num_users, num_items, lam=0.01, learning_rate=0.001, D=10, Dprime=60, hidden_units_per_layer=50,
@@ -52,8 +53,9 @@ class _NNMFBase(object):
         mlp_layer_1 = tf.nn.sigmoid(tf.matmul(f_input_layer, mlp_weights['h1']))
         mlp_layer_2 = tf.nn.sigmoid(tf.matmul(mlp_layer_1, mlp_weights['h2']))
         mlp_layer_3 = tf.nn.sigmoid(tf.matmul(mlp_layer_2, mlp_weights['h3']))
+        out = tf.matmul(mlp_layer_3, mlp_weights['out'])
 
-        return tf.squeeze(tf.matmul(mlp_layer_3, mlp_weights['out']), squeeze_dims=[1]), mlp_weights
+        return out, mlp_weights
 
     def train_iteration(self, data):
         user_ids = data['user_id']
@@ -62,10 +64,8 @@ class _NNMFBase(object):
 
         feed_dict = {self.user_index: user_ids, self.item_index: item_ids, self.r_target: ratings}
 
-        # Optimize weights
-        self.sess.run(self.f_train_step, feed_dict=feed_dict)
-        # Optimize latents
-        self.sess.run(self.latent_train_step, feed_dict=feed_dict)
+        for step in self.optimize_steps:
+            self.sess.run(step, feed_dict=feed_dict)
 
     def eval_rmse(self, data):
         user_ids = data['user_id']
@@ -105,7 +105,8 @@ class NNMF(_NNMFBase):
         self.f_input_layer = tf.concat(concat_dim=1,
                                        values=[self.U_lu, self.V_lu, tf.mul(self.Uprime_lu, self.Vprime_lu)])
 
-        self.r, self.mlp_weights = self._build_mlp(self.f_input_layer)
+        _r, self.mlp_weights = self._build_mlp(self.f_input_layer)
+        self.r = tf.squeeze(_r, squeeze_dims=[1])
 
     def _init_ops(self):
         # Loss
@@ -115,6 +116,111 @@ class NNMF(_NNMFBase):
         self.loss = tf.add(reconstruction_loss, tf.scalar_mul(self.lam, reg))
 
         # Optimizer
-        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate, name='opt')
-        self.f_train_step = self.optimizer.minimize(self.loss, var_list=self.mlp_weights.values())
-        self.latent_train_step = self.optimizer.minimize(self.loss, var_list=[self.U, self.Uprime, self.V, self.Vprime])
+        # self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
+        self.optimizer = tf.train.AdamOptimizer()
+        # Optimize the MLP weights
+        f_train_step = self.optimizer.minimize(self.loss, var_list=self.mlp_weights.values())
+        # Then optimize the latents
+        latent_train_step = self.optimizer.minimize(self.loss, var_list=[self.U, self.Uprime, self.V, self.Vprime])
+        self.optimize_steps = [f_train_step, latent_train_step]
+
+class SVINNMF(_NNMFBase):
+    model_filename = 'model/svi_nnmf.ckpt'
+
+    def __init__(self, *args, **kwargs):
+        if 'r_sigma' in kwargs:
+            self.r_sigma = kwargs['r_sigma']
+            del kwargs['r_sigma']
+        else:
+            self.r_sigma = 0.875
+
+        super(SVINNMF, self).__init__(*args, **kwargs)
+
+    def _init_vars(self):
+        # Input
+        self.user_index = tf.placeholder(tf.int32, [None])
+        self.item_index = tf.placeholder(tf.int32, [None])
+        self.r_target = tf.placeholder(tf.float32, [None])
+
+        # Latents
+        # NOTE: distributions.Normal is scalar, need to use distributions.MultivariateNormalXXX for multivariate
+        self.U_mu = tf.Variable(tf.truncated_normal(
+            [self.num_users, self.D], **self.latent_normal_init_params))
+        self.U_sigma = tf.Variable(tf.random_uniform(
+            [self.num_users, self.D], minval=0.0, maxval=1.0))
+
+        self.Uprime_mu = tf.Variable(tf.truncated_normal(
+            [self.num_users, self.Dprime], **self.latent_normal_init_params))
+        self.Uprime_sigma = tf.Variable(tf.random_uniform(
+            [self.num_users, self.Dprime], minval=0.0, maxval=1.0))
+
+        self.V_mu = tf.Variable(tf.truncated_normal(
+            [self.num_items, self.D], **self.latent_normal_init_params))
+        self.V_sigma = tf.Variable(tf.random_uniform(
+            [self.num_items, self.D], minval=0.0, maxval=1.0))
+
+        self.Vprime_mu = tf.Variable(tf.truncated_normal(
+            [self.num_items, self.Dprime], **self.latent_normal_init_params))
+        self.Vprime_sigma = tf.Variable(tf.random_uniform(
+            [self.num_items, self.Dprime], minval=0.0, maxval=1.0))
+
+        # Lookups
+        self.U_mu_lu = tf.nn.embedding_lookup(self.U_mu, self.user_index)
+        self.U_sigma_lu = tf.nn.embedding_lookup(self.U_sigma, self.user_index)
+
+        self.Uprime_mu_lu = tf.nn.embedding_lookup(self.Uprime_mu, self.user_index)
+        self.Uprime_sigma_lu = tf.nn.embedding_lookup(self.Uprime_sigma, self.user_index)
+
+        self.V_mu_lu = tf.nn.embedding_lookup(self.V_mu, self.item_index)
+        self.V_sigma_lu = tf.nn.embedding_lookup(self.V_sigma, self.item_index)
+
+        self.Vprime_mu_lu = tf.nn.embedding_lookup(self.Vprime_mu, self.item_index)
+        self.Vprime_sigma_lu = tf.nn.embedding_lookup(self.Vprime_sigma, self.item_index)
+
+        # priors
+        self.p_V = self.p_U = tf.contrib.distributions.MultivariateNormalDiag(mu=tf.zeros(shape=[self.D]),
+                                                              diag_stdev=tf.ones([self.D]))
+
+        self.p_Vprime = self.p_Uprime = tf.contrib.distributions.MultivariateNormalDiag(mu=tf.zeros(shape=[self.Dprime]),
+                                                                        diag_stdev=tf.ones([self.Dprime]))
+
+        # posterior (q) - note: accessing actually generates samples
+        # TODO figure out if these handle reparameterization for us
+        # TODO figureout why we can't use MultivariateNormalFullTensor here?
+        self.U = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.U_mu_lu, diag_stdev=self.U_sigma_lu)
+        self.Uprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Uprime_mu_lu, diag_stdev=self.Uprime_sigma_lu)
+        self.V = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.V_mu_lu, diag_stdev=self.V_sigma_lu)
+        self.Vprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Vprime_mu_lu, diag_stdev=self.Vprime_sigma_lu)
+
+        # MLP ("f")
+        self.f_input_layer = tf.concat(concat_dim=1,
+                                       values=[self.U, self.V, tf.mul(self.Uprime, self.Vprime)])
+
+        self.r_mu, self.mlp_weights = self._build_mlp(self.f_input_layer)
+
+        _r = bf.stochastic_tensor.NormalTensor(mu=self.r_mu, sigma=[self.r_sigma])
+        self.p_r_given_Z = _r.distribution
+        self.r = tf.squeeze(_r, squeeze_dims=[1])
+
+    def _init_ops(self):
+        # Loss
+        self.log_likelihood = self.p_r_given_Z.log_pdf(tf.transpose([self.r_target]))
+        self.loss = tf.neg(bf.variational_inference.elbo(log_likelihood=self.log_likelihood, variational_with_prior={
+            self.U: self.p_U,
+            self.V: self.p_V,
+            self.Uprime: self.p_Uprime,
+            self.Vprime: self.p_Vprime,
+        }, keep_batch_dim=False))
+
+        # Optimizer
+        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
+        self.optimize_steps = [self.optimizer.minimize(self.loss)]
+
+    def eval_rmse(self, data):
+        # TODO this is actually neg log likelihood, fix
+        user_ids = data['user_id']
+        item_ids = data['item_id']
+        ratings = data['rating']
+
+        feed_dict = {self.user_index: user_ids, self.item_index: item_ids, self.r_target: ratings}
+        return self.sess.run(tf.reduce_mean(tf.neg(self.log_likelihood)), feed_dict=feed_dict)
