@@ -1,6 +1,6 @@
 #!/usr/bin/env python2.7
 from __future__ import absolute_import, print_function
-"""NNMF model."""
+"""Runs NNMF model."""
 # Standard modules
 from math import sqrt
 # Third party modules
@@ -176,6 +176,7 @@ class SVINNMF(_NNMFBase):
         self.Vprime_sigma_lu = tf.nn.embedding_lookup(self.Vprime_sigma, self.item_index)
 
         # priors
+        # NOTE: distributions.Normal is scalar, need to use distributions.MultivariateNormalXXX for multivariate
         self.p_V = self.p_U = tf.contrib.distributions.MultivariateNormalDiag(mu=tf.zeros(shape=[self.D]),
                                                               diag_stdev=tf.ones([self.D]))
 

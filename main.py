@@ -17,6 +17,12 @@ batch_size = None
 num_users = 943
 num_items = 1682
 
+train_filename = 'data/ml-100k/split/u.data.train'
+valid_filename = 'data/ml-100k/split/u.data.valid'
+test_filename = 'data/ml-100k/split/u.data.test'
+delimiter = '\t'
+col_names = ['user_id', 'item_id', 'rating']
+
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
         print('train or predict?')
@@ -32,37 +38,10 @@ if __name__ == '__main__':
 
         # Train
         if sys.argv[1] == 'train':
-            # Read in data
-            print('Reading in data')
-
-            data = pd.read_csv('data/ml-100k/u.data', delimiter='\t', header=None,
-                               names=['user_id', 'item_id', 'rating', 'timestamp'])
-            data.drop('timestamp', axis=1, inplace=True)
-            # Make user/item indices start at 0 (in MovieLens data set they start at 1)
-            data['user_id'] = data['user_id']-1
-            data['item_id'] = data['item_id']-1
-
-            # Shuffle
-            data = (data.iloc[np.random.permutation(len(data))]).reset_index(drop=True)
-
-            # Split data set into (all) train/test
-            all_train_ratio = 0.98
-            num_all_train = int(len(data)*all_train_ratio)
-            num_test = len(data)-num_all_train
-            all_train_data = data.head(num_all_train)
-            test_data = data.tail(num_test)
-
-            # Split up (all) train data into train/validation
-            train_ratio = 0.9
-            num_train = int(len(all_train_data)*train_ratio)
-            num_valid = len(all_train_data)-num_train
-            train_data = all_train_data.head(num_train)
-            valid_data = all_train_data.tail(num_valid)
-
-            print("Data subsets:")
-            print("Train: {}".format(len(train_data)))
-            print("Validation: {}".format(len(valid_data)))
-            print("Test: {}".format(len(test_data)))
+            print("Reading in data")
+            train_data = pd.read_csv(train_filename, delimiter=delimiter, header=None, names=col_names)
+            valid_data = pd.read_csv(valid_filename, delimiter=delimiter, header=None, names=col_names)
+            test_data = pd.read_csv(test_filename, delimiter=delimiter, header=None, names=col_names)
 
             # Print initial values
             batch = train_data.sample(batch_size) if batch_size else train_data
