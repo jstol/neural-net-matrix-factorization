@@ -9,7 +9,7 @@ import tensorflow.contrib.bayesflow as bf
 
 class _NNMFBase(object):
     def __init__(self, num_users, num_items, lam=0.01, learning_rate=0.001, D=10, Dprime=60, hidden_units_per_layer=50,
-                 latent_normal_init_params={'mean': 0.0, 'stddev': 0.1}):
+                 latent_normal_init_params={'mean': 0.0, 'stddev': 0.1}, model_filename='model/nnmf.ckpt'):
         self.num_users = num_users
         self.num_items = num_items
         self.lam = lam
@@ -18,6 +18,7 @@ class _NNMFBase(object):
         self.Dprime = Dprime
         self.hidden_units_per_layer = hidden_units_per_layer
         self.latent_normal_init_params = latent_normal_init_params
+        self.model_filename = model_filename
 
         self._init_vars()
         self._init_ops()
@@ -39,7 +40,7 @@ class _NNMFBase(object):
         num_f_inputs = f_input_layer.get_shape().as_list()[1]
 
         # MLP weights picked uniformly from +/- 4*sqrt(6)/sqrt(n_in + n_out)
-        mlp_weights = {
+        self.mlp_weights = {
             'h1': tf.Variable(tf.random_uniform([num_f_inputs, self.hidden_units_per_layer],
                 **self._weight_init_range(num_f_inputs, self.hidden_units_per_layer))),
             'h2': tf.Variable(tf.random_uniform([self.hidden_units_per_layer, self.hidden_units_per_layer],
@@ -50,12 +51,12 @@ class _NNMFBase(object):
                 **self._weight_init_range(self.hidden_units_per_layer, 1))),
         }
         # MLP layers
-        mlp_layer_1 = tf.nn.sigmoid(tf.matmul(f_input_layer, mlp_weights['h1']))
-        mlp_layer_2 = tf.nn.sigmoid(tf.matmul(mlp_layer_1, mlp_weights['h2']))
-        mlp_layer_3 = tf.nn.sigmoid(tf.matmul(mlp_layer_2, mlp_weights['h3']))
-        out = tf.matmul(mlp_layer_3, mlp_weights['out'])
+        self.mlp_layer_1 = tf.nn.sigmoid(tf.matmul(f_input_layer, self.mlp_weights['h1']))
+        self.mlp_layer_2 = tf.nn.sigmoid(tf.matmul(self.mlp_layer_1, self.mlp_weights['h2']))
+        self.mlp_layer_3 = tf.nn.sigmoid(tf.matmul(self.mlp_layer_2, self.mlp_weights['h3']))
+        self.out = tf.matmul(self.mlp_layer_3, self.mlp_weights['out'])
 
-        return out, mlp_weights
+        return self.out, self.mlp_weights
 
     def train_iteration(self, data):
         user_ids = data['user_id']
@@ -81,8 +82,6 @@ class _NNMFBase(object):
         return rating[0]
 
 class NNMF(_NNMFBase):
-    model_filename = 'model/nnmf.ckpt'
-
     def _init_vars(self):
         # Input
         self.user_index = tf.placeholder(tf.int32, [None])
@@ -124,8 +123,6 @@ class NNMF(_NNMFBase):
         self.optimize_steps = [f_train_step, latent_train_step]
 
 class SVINNMF(_NNMFBase):
-    model_filename = 'model/svi_nnmf.ckpt'
-
     def __init__(self, *args, **kwargs):
         if 'r_sigma' in kwargs:
             self.r_sigma = kwargs['r_sigma']
@@ -204,13 +201,14 @@ class SVINNMF(_NNMFBase):
 
     def _init_ops(self):
         # Loss
-        self.log_likelihood = self.p_r_given_Z.log_pdf(tf.transpose([self.r_target]))
-        self.loss = tf.neg(bf.variational_inference.elbo(log_likelihood=self.log_likelihood, variational_with_prior={
+        self.log_likelihood = tf.squeeze(self.p_r_given_Z.log_pdf(tf.transpose([self.r_target])), squeeze_dims=[1])
+
+        self.loss = tf.neg(tf.reduce_mean(bf.variational_inference.elbo(log_likelihood=self.log_likelihood, variational_with_prior={
             self.U: self.p_U,
             self.V: self.p_V,
             self.Uprime: self.p_Uprime,
             self.Vprime: self.p_Vprime,
-        }, keep_batch_dim=False))
+        }, keep_batch_dim=False), 0))
 
         # Optimizer
         self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
@@ -222,7 +220,7 @@ class SVINNMF(_NNMFBase):
         ratings = data['rating']
 
         feed_dict = {self.user_index: user_ids, self.item_index: item_ids, self.r_target: ratings}
-        rmse = tf.sqrt(tf.reduce_mean(tf.square(tf.sub(self.p_r_given_Z.mean(), self.r_target))))
+        rmse = tf.sqrt(tf.reduce_mean(tf.square(tf.sub(tf.squeeze(self.p_r_given_Z.mean(), squeeze_dims=[1]), self.r_target))))
         return self.sess.run(rmse, feed_dict=feed_dict)
 
     def predict(self, user_id, item_id):
