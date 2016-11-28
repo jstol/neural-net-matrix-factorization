@@ -123,7 +123,7 @@ class NNMF(_NNMFBase):
         self.optimize_steps = [f_train_step, latent_train_step]
 
 class SVINNMF(_NNMFBase):
-    num_latent_samples = 30
+    num_latent_samples = 1
     num_data_samples = 3
 
     def __init__(self, *args, **kwargs):
@@ -188,11 +188,31 @@ class SVINNMF(_NNMFBase):
         # TODO figure out why we can't use MultivariateNormalFullTensor here?
         # Note: can get underlying distributions as needed: ex. self.p_U_given_X = self.U.distribution
 
-        with bf.stochastic_tensor.value_type(bf.stochastic_tensor.SampleAndReshapeValue(n=self.num_latent_samples)):
-            self.U = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.U_mu_lu, diag_stdev=self.U_sigma_lu)
-            self.Uprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Uprime_mu_lu, diag_stdev=self.Uprime_sigma_lu)
-            self.V = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.V_mu_lu, diag_stdev=self.V_sigma_lu)
-            self.Vprime = bf.stochastic_tensor.MultivariateNormalDiagTensor(mu=self.Vprime_mu_lu, diag_stdev=self.Vprime_sigma_lu)
+        self.q_U = tf.contrib.distributions.MultivariateNormalDiag(mu=self.U_mu_lu, diag_stdev=self.U_sigma_lu)
+        self.q_Uprime = tf.contrib.distributions.MultivariateNormalDiag(mu=self.Uprime_mu_lu, diag_stdev=self.Uprime_sigma_lu)
+        self.q_V = tf.contrib.distributions.MultivariateNormalDiag(mu=self.V_mu_lu, diag_stdev=self.V_sigma_lu)
+        self.q_Vprime = tf.contrib.distributions.MultivariateNormalDiag(mu=self.Vprime_mu_lu, diag_stdev=self.Vprime_sigma_lu)
+
+        # TODO more than one sample
+        self.U = self.q_U.mean()
+        self.Uprime = self.q_Uprime.mean()
+        self.V = self.q_V.mean()
+        self.Vprime = self.q_Vprime.mean()
+
+        # TODO dist so not same sample?
+        eps_D = tf.random_normal((self.num_data_samples, self.D), 0, 1, dtype=tf.float32)
+        eps_Dprime = tf.random_normal((self.num_data_samples, self.Dprime), 0, 1, dtype=tf.float32)
+        eps_D = tf.zeros((self.num_data_samples, self.D))
+        eps_Dprime = tf.zeros((self.num_data_samples, self.Dprime))
+
+        self.U = tf.add(self.U_mu_lu,
+                        tf.mul(self.U_sigma_lu, eps_D))
+        self.Uprime = tf.add(self.Uprime_mu_lu,
+                        tf.mul(self.Uprime_sigma_lu, eps_Dprime))
+        self.V = tf.add(self.V_mu_lu,
+                        tf.mul(self.V_sigma_lu, eps_D))
+        self.Vprime = tf.add(self.Vprime_mu_lu,
+                             tf.mul(self.Vprime_sigma_lu, eps_Dprime))
 
         # MLP ("f")
         self.f_input_layer = tf.concat(concat_dim=1,
@@ -200,27 +220,13 @@ class SVINNMF(_NNMFBase):
 
         self.r_mu, self.mlp_weights = self._build_mlp(self.f_input_layer)
 
-        with bf.stochastic_tensor.value_type(bf.stochastic_tensor.MeanValue()):
-            self.r = bf.stochastic_tensor.NormalTensor(mu=self.r_mu, sigma=[self.r_sigma])
-
     def _init_ops(self):
-        # TODO do i have to tile p_U?
-        self.KL_U = tf.contrib.distributions.kl(self.U.distribution, self.p_U)
-        self.KL_Uprime = tf.contrib.distributions.kl(self.Uprime.distribution, self.p_Uprime)
-        self.KL_V = tf.contrib.distributions.kl(self.V.distribution, self.p_V)
-        self.KL_Vprime = tf.contrib.distributions.kl(self.Vprime.distribution, self.p_Vprime)
-        self.KL_all = tf.reduce_sum(self.KL_U + self.KL_Uprime + self.KL_V + self.KL_Vprime, reduction_indices=[0])
+        sqr_loss = tf.square(tf.sub(self.r_target, tf.squeeze(self.r_mu, squeeze_dims=[1])))
+        self.log_prob = -tf.reduce_sum(sqr_loss)
+        self.loss = tf.reduce_sum(sqr_loss)
 
-        # TODO weighting of gradient
-        self.r_target_stacked = tf.squeeze(tf.reshape(tf.tile(tf.expand_dims(self.r_target, 1), [1, self.num_latent_samples]),
-                                      [self.num_data_samples * self.num_latent_samples, 1]), squeeze_dims=[1])
-
-        self.log_prob = tf.reduce_sum(tf.squeeze(self.r.distribution.log_pdf(tf.transpose([self.r_target_stacked])), squeeze_dims=[1]), reduction_indices=[0])
-
-        self.elbo = self.log_prob - self.KL_all
-        self.loss = tf.neg(self.elbo)
-
-        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
+        # self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
+        self.optimizer = tf.train.AdamOptimizer()
         self.optimize_steps = [self.optimizer.minimize(self.loss)]
 
     def eval_rmse(self, data):
@@ -230,7 +236,7 @@ class SVINNMF(_NNMFBase):
 
         feed_dict = {self.user_index: user_ids, self.item_index: item_ids, self.r_target: ratings}
 
-        return self.sess.run((-self.log_prob, self.KL_all, self.loss), feed_dict=feed_dict)
+        return self.sess.run((self.r_mu, -self.log_prob, self.loss), feed_dict=feed_dict)
 
     def predict(self, user_id, item_id):
         rating = self.sess.run(self.r_mu, feed_dict={self.user_index: [user_id], self.item_index: [item_id]})
