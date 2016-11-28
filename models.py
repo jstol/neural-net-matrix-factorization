@@ -176,43 +176,24 @@ class SVINNMF(_NNMFBase):
         self.Vprime_sigma_lu = tf.nn.embedding_lookup(self.Vprime_sigma, self.item_index)
 
         # priors
-        # NOTE: distributions.Normal is scalar, need to use distributions.MultivariateNormalXXX for multivariate
         self.p_V = self.p_U = tf.contrib.distributions.MultivariateNormalDiag(mu=tf.zeros(shape=[self.D]),
                                                               diag_stdev=tf.ones([self.D]))
 
         self.p_Vprime = self.p_Uprime = tf.contrib.distributions.MultivariateNormalDiag(mu=tf.zeros(shape=[self.Dprime]),
                                                                         diag_stdev=tf.ones([self.Dprime]))
 
-        # posterior (q) - note: accessing StochasticTensors actually generates samples
-        # TODO figure out if these handle reparameterization for us (pretty sure it does)
-        # TODO figure out why we can't use MultivariateNormalFullTensor here?
-        # Note: can get underlying distributions as needed: ex. self.p_U_given_X = self.U.distribution
-
+        # Posterior (q)
         self.q_U = tf.contrib.distributions.MultivariateNormalDiag(mu=self.U_mu_lu, diag_stdev=self.U_sigma_lu)
         self.q_Uprime = tf.contrib.distributions.MultivariateNormalDiag(mu=self.Uprime_mu_lu, diag_stdev=self.Uprime_sigma_lu)
         self.q_V = tf.contrib.distributions.MultivariateNormalDiag(mu=self.V_mu_lu, diag_stdev=self.V_sigma_lu)
         self.q_Vprime = tf.contrib.distributions.MultivariateNormalDiag(mu=self.Vprime_mu_lu, diag_stdev=self.Vprime_sigma_lu)
 
-        # TODO more than one sample
+        # Sample
+        # TODO not just mean and more than one sample
         self.U = self.q_U.mean()
         self.Uprime = self.q_Uprime.mean()
         self.V = self.q_V.mean()
         self.Vprime = self.q_Vprime.mean()
-
-        # TODO dist so not same sample?
-        eps_D = tf.random_normal((self.num_data_samples, self.D), 0, 1, dtype=tf.float32)
-        eps_Dprime = tf.random_normal((self.num_data_samples, self.Dprime), 0, 1, dtype=tf.float32)
-        eps_D = tf.zeros((self.num_data_samples, self.D))
-        eps_Dprime = tf.zeros((self.num_data_samples, self.Dprime))
-
-        self.U = tf.add(self.U_mu_lu,
-                        tf.mul(self.U_sigma_lu, eps_D))
-        self.Uprime = tf.add(self.Uprime_mu_lu,
-                        tf.mul(self.Uprime_sigma_lu, eps_Dprime))
-        self.V = tf.add(self.V_mu_lu,
-                        tf.mul(self.V_sigma_lu, eps_D))
-        self.Vprime = tf.add(self.Vprime_mu_lu,
-                             tf.mul(self.Vprime_sigma_lu, eps_Dprime))
 
         # MLP ("f")
         self.f_input_layer = tf.concat(concat_dim=1,
@@ -220,10 +201,24 @@ class SVINNMF(_NNMFBase):
 
         self.r_mu, self.mlp_weights = self._build_mlp(self.f_input_layer)
 
+        # TODO learn sigma and take it into account in loss
+        self.p_r_given_Z = tf.contrib.distributions.Normal(mu=self.r_mu, sigma=self.r_sigma*tf.ones_like(self.r_mu))
+
     def _init_ops(self):
-        sqr_loss = tf.square(tf.sub(self.r_target, tf.squeeze(self.r_mu, squeeze_dims=[1])))
-        self.log_prob = -tf.reduce_sum(sqr_loss)
-        self.loss = tf.reduce_sum(sqr_loss)
+        # TODO do i have to tile p_U?
+        # self.KL_U = tf.contrib.distributions.kl(self.q_U, self.p_U)
+        # self.KL_Uprime = tf.contrib.distributions.kl(self.q_Uprime, self.p_Uprime)
+        # self.KL_V = tf.contrib.distributions.kl(self.q_V, self.p_V)
+        # self.KL_Vprime = tf.contrib.distributions.kl(self.q_Vprime, self.p_Vprime)
+        # self.KL_all = tf.reduce_sum(self.KL_U + self.KL_Uprime + self.KL_V + self.KL_Vprime, reduction_indices=[0])
+
+        # TODO weighting of gradient
+        # TODO handle multiple samples
+        # self.r_target_stacked = tf.squeeze(tf.reshape(tf.tile(tf.expand_dims(self.r_target, 1), [1, self.num_latent_samples]),
+        #                               [self.num_data_samples * self.num_latent_samples, 1]), squeeze_dims=[1])
+
+        self.log_prob = self.p_r_given_Z.log_pdf(tf.transpose([self.r_target]))
+        self.loss = -tf.reduce_sum(self.log_prob)
 
         # self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate)
         self.optimizer = tf.train.AdamOptimizer()
