@@ -11,13 +11,16 @@ import numpy as np
 from models import NNMF, SVINNMF
 
 # Various constants
-early_stop_max_iter = 50
-max_iters = 10000
+early_stop_max_iter = 25
+max_iters = 100000
+# batch_size = 25000
 batch_size = None
-num_users = 943
-num_items = 1682
+# num_users = 943
+# num_items = 1682
+num_users = 5
+num_items = 5
 
-train_filename = 'data/ml-100k/split/u.data.train'
+train_filename = 'data/ml-100k/split/u.data.train.small'
 valid_filename = 'data/ml-100k/split/u.data.valid'
 test_filename = 'data/ml-100k/split/u.data.test'
 delimiter = '\t'
@@ -32,7 +35,7 @@ if __name__ == '__main__':
         # Define computation graph & Initialize
         print('Building network & initializing variables')
         # model = NNMF(num_users, num_items)
-        model = SVINNMF(num_users, num_items)
+        model = SVINNMF(num_users, num_items, model_filename='model/svi_nnmf_STOCHASTIC.ckpt')
         model.init_sess(sess)
         saver = tf.train.Saver()
 
@@ -40,14 +43,27 @@ if __name__ == '__main__':
         if sys.argv[1] == 'train':
             print("Reading in data")
             train_data = pd.read_csv(train_filename, delimiter=delimiter, header=None, names=col_names)
+            train_data['user_id'] = train_data['user_id'] - 1
+            train_data['item_id'] = train_data['item_id'] - 1
             valid_data = pd.read_csv(valid_filename, delimiter=delimiter, header=None, names=col_names)
+            valid_data['user_id'] = valid_data['user_id'] - 1
+            valid_data['item_id'] = valid_data['item_id'] - 1
             test_data = pd.read_csv(test_filename, delimiter=delimiter, header=None, names=col_names)
+            test_data['user_id'] = test_data['user_id'] - 1
+            test_data['item_id'] = test_data['item_id'] - 1
 
-            # Print initial values
+            # TODO PUT BACK IF NEEDED
+            # # Print initial values
+            # batch = train_data.sample(batch_size) if batch_size else train_data
+            # train_error = model.eval_rmse(batch)
+            # valid_error = model.eval_rmse(valid_data)
+            # print("{:2f} {:2f}".format(train_error, valid_error))
+
             batch = train_data.sample(batch_size) if batch_size else train_data
             train_error = model.eval_rmse(batch)
-            valid_error = model.eval_rmse(valid_data)
-            print("{:2f} {:2f}".format(train_error, valid_error))
+            print(train_error)
+            # print("{:2f}".format(train_error))
+            # exit()
 
             # Optimize
             prev_valid_error = float("Inf")
@@ -57,20 +73,27 @@ if __name__ == '__main__':
                 batch = train_data.sample(batch_size) if batch_size else train_data
                 model.train_iteration(batch)
 
-                # Evaluate
-                train_error = model.eval_rmse(batch)
-                valid_error = model.eval_rmse(valid_data)
-                print("{:2f} {:2f}".format(train_error, valid_error))
+                # TODO put back IF NEEDED
+                # # Evaluate
+                # train_error = model.eval_rmse(batch)
+                # valid_error = model.eval_rmse(valid_data)
+                # print("{:2f} {:2f}".format(train_error, valid_error))
 
-                # Checkpointing/early stopping
-                early_stop_iters += 1
-                if valid_error < prev_valid_error:
-                    prev_valid_error = valid_error
-                    early_stop_iters = 0
-                    saver.save(sess, model.model_filename)
-                elif early_stop_iters == early_stop_max_iter:
-                    print("Early stopping ({} vs. {})...".format(prev_valid_error, valid_error))
-                    break
+                train_error = model.eval_rmse(batch)
+                print(train_error)
+                # print("{:2f}".format(train_error))
+
+                # TODO put back
+                saver.save(sess, model.model_filename)
+                # # Checkpointing/early stopping
+                # early_stop_iters += 1
+                # if valid_error < prev_valid_error:
+                #     prev_valid_error = valid_error
+                #     early_stop_iters = 0
+                #     saver.save(sess, model.model_filename)
+                # elif early_stop_iters == early_stop_max_iter:
+                #     print("Early stopping ({} vs. {})...".format(prev_valid_error, valid_error))
+                #     break
 
             print('Loading best checkpointed model')
             saver.restore(sess, model.model_filename)
