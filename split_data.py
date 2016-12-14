@@ -17,9 +17,9 @@ if __name__ == '__main__':
                         help='string to append to front of output filenames')
     parser.add_argument('--delimiter', metavar='DELIMITER', type=str, default='\t',
                         help='delimiter to use when parsing/writing files')
-    parser.add_argument('--train-test-r', metavar='TRAIN_TEST_RATIO', type=float, default=0.98,
+    parser.add_argument('--train-test-r', metavar='TRAIN_TEST_RATIO', type=float, default=0.9,
                         help='Ratio of training data to test data')
-    parser.add_argument('--train-valid-r', metavar='TRAIN_VALID_RATIO', type=float, default=0.9,
+    parser.add_argument('--train-valid-r', metavar='TRAIN_VALID_RATIO', type=float, default=0.98,
                         help='Ratio of training data to validation data')
 
     args = parser.parse_args()
@@ -39,9 +39,6 @@ if __name__ == '__main__':
     data = pd.read_csv(input_filename, delimiter=delimiter, header=None,
                        names=['user_id', 'item_id', 'rating', 'timestamp'])
     data.drop('timestamp', axis=1, inplace=True)
-    # Make user/item indices start at 0 (in MovieLens data set they start at 1)
-    data['user_id'] = data['user_id']-1
-    data['item_id'] = data['item_id']-1
 
     # Shuffle
     data = (data.iloc[np.random.permutation(len(data))]).reset_index(drop=True)
