@@ -1,6 +1,6 @@
 #!/usr/bin/env python2.7
 from __future__ import absolute_import, print_function
-"""Runs NNMF model."""
+"""Defines NNMF models."""
 # Third party modules
 import tensorflow as tf
 # Local modules
@@ -255,7 +255,8 @@ class SVINNMF(_NNMFBase):
         self.optimize_steps = [self.optimizer.minimize(self.loss)]
 
     def train_iteration(self, data):
-        additional_feed = {self.kl_weight: get_kl_weight(self._iters, on_iter=self.kl_full_iter)} if self.anneal_kl else {}
+        additional_feed = {self.kl_weight: get_kl_weight(self._iters, on_iter=self.kl_full_iter)} if self.anneal_kl \
+            else {}
         super(SVINNMF, self)._train_iteration(data, additional_feed=additional_feed)
 
     def eval_loss(self, data):
