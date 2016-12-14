@@ -1,2 +1,3 @@
 https://storage.googleapis.com/tensorflow/mac/cpu/tensorflow-0.11.0-py2-none-any.whl
 pandas==0.19.1
+numpy==1.11.2
