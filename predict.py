@@ -10,7 +10,7 @@ from nnmf.models import NNMF, SVINNMF
 
 if __name__ == '__main__':
     # Set up command line params
-    parser = argparse.ArgumentParser(description='Trains/evaluates NNMF models.')
+    parser = argparse.ArgumentParser(description='Generates predictions using trained NNMF models.')
     parser.add_argument('--model', metavar='MODEL_NAME', type=str, choices=['NNMF', 'SVINNMF'],
                         help='the name of the model to use', required=True)
     parser.add_argument('--users', metavar='NUM_USERS', type=int, default=943, # ML 100K has 943 users
