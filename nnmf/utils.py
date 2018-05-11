@@ -49,6 +49,14 @@ def build_mlp(f_input_layer, hidden_units_per_layer):
     return out, mlp_weights
 
 
-def get_kl_weight(curr_iter, on_iter=100):
-    """Outputs sigmoid scheduled KL weight term (to be fully on at 'on_iter')"""
-    return 1.0 / (1 + math.exp(-(25.0 / on_iter) * (curr_iter - (on_iter / 2.0))))
+def get_kl_weight(curr_iter, on_epoch=100):
+    """Outputs sigmoid scheduled KL weight term (to be fully on at 'on_epoch')"""
+    return 1.0 / (1 + math.exp(-(25.0 / on_epoch) * (curr_iter - (on_epoch / 2.0))))
+
+
+def chunk_df(df, size):
+    """Splits a Pandas dataframe into chunks of size `size`.
+
+    See here: https://stackoverflow.com/a/25701576/1424734
+    """
+    return (df[pos:pos + size] for pos in xrange(0, len(df), size))

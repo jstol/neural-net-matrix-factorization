@@ -17,8 +17,8 @@ class _NNMFBase(object):
         self.latent_normal_init_params = latent_normal_init_params
         self.model_filename = model_filename
 
-        # Internal counter to keep track of current iteration
-        self._iters = 0
+        # Internal counter to keep track of current epoch
+        self._epochs = 0
 
         # Input
         self.user_index = tf.placeholder(tf.int32, [None])
@@ -56,7 +56,7 @@ class _NNMFBase(object):
         for step in self.optimize_steps:
             self.sess.run(step, feed_dict=feed_dict)
 
-        self._iters += 1
+        self._epochs += 1
 
     def train_iteration(self, data):
         self._train_iteration(data)
@@ -166,11 +166,11 @@ class SVINNMF(_NNMFBase):
         else:
             self.Vprime_prior_var = 5.0
 
-        if 'kl_full_iter' in kwargs:
-            self.kl_full_iter = int(kwargs['kl_full_iter'])
-            del kwargs['kl_full_iter']
+        if 'kl_full_epoch' in kwargs:
+            self.kl_full_epoch = int(kwargs['kl_full_epoch'])
+            del kwargs['kl_full_epoch']
         else:
-            self.kl_full_iter = 1000 # something like: max_iters/3
+            self.kl_full_epoch = 1000 # something like: max_epochs/3
 
         if 'anneal_kl' in kwargs:
             self.anneal_kl = bool(kwargs['anneal_kl'])
@@ -255,7 +255,7 @@ class SVINNMF(_NNMFBase):
         self.optimize_steps = [self.optimizer.minimize(self.loss)]
 
     def train_iteration(self, data):
-        additional_feed = {self.kl_weight: get_kl_weight(self._iters, on_iter=self.kl_full_iter)} if self.anneal_kl \
+        additional_feed = {self.kl_weight: get_kl_weight(self._epochs, on_epoch=self.kl_full_epoch)} if self.anneal_kl \
             else {}
         super(SVINNMF, self)._train_iteration(data, additional_feed=additional_feed)
 
@@ -265,5 +265,5 @@ class SVINNMF(_NNMFBase):
         ratings = data['rating']
 
         feed_dict = {self.user_index: user_ids, self.item_index: item_ids, self.r_target: ratings,
-                     self.kl_weight: get_kl_weight(self._iters, on_iter=self.kl_full_iter)}
+                     self.kl_weight: get_kl_weight(self._epochs, on_epoch=self.kl_full_epoch)}
         return self.sess.run(self.loss, feed_dict=feed_dict)

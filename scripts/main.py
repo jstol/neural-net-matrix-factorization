@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 # Package modules
 from nnmf.models import NNMF, SVINNMF
+from nnmf.utils import chunk_df
 
 def load_data(train_filename, valid_filename, test_filename, delimiter='\t', col_names=['user_id', 'item_id', 'rating']):
     """Helper function to load in/preprocess dataframes"""
@@ -24,36 +25,39 @@ def load_data(train_filename, valid_filename, test_filename, delimiter='\t', col
 
     return train_data, valid_data, test_data
 
-def train(model, sess, saver, train_data, valid_data, batch_size, max_iters, use_early_stop, early_stop_max_iter):
+def train(model, sess, saver, train_data, valid_data, batch_size, max_epochs, use_early_stop, early_stop_max_epoch):
     # Print initial values
     batch = train_data.sample(batch_size) if batch_size else train_data
     train_error = model.eval_loss(batch)
     train_rmse = model.eval_rmse(batch)
     valid_rmse = model.eval_rmse(valid_data)
-    print("Train error: {:3f}, Train RMSE: {:3f}; Valid RMSE: {:3f}".format(train_error, train_rmse, valid_rmse))
+    print("[start] Train error: {:3f}, Train RMSE: {:3f}; Valid RMSE: {:3f}".format(train_error, train_rmse, valid_rmse))
 
     # Optimize
     prev_valid_rmse = float("Inf")
-    early_stop_iters = 0
-    for i in xrange(max_iters):
-        # Run SGD
-        batch = train_data.sample(batch_size) if batch_size else train_data
-        model.train_iteration(batch)
+    early_stop_epochs = 0
+    for epoch in xrange(max_epochs):
+        # Run (S)GD
+        shuffled_df = train_data.sample(frac=1)
+        batches = chunk_df(shuffled_df, batch_size) if batch_size else [train_data]
 
-        # Evaluate
-        train_error = model.eval_loss(batch)
-        train_rmse = model.eval_rmse(batch)
-        valid_rmse = model.eval_rmse(valid_data)
-        print("Train error: {:3f}, Train RMSE: {:3f}; Valid RMSE: {:3f}".format(train_error, train_rmse, valid_rmse))
+        for batch_iter, batch in enumerate(batches):
+            model.train_iteration(batch)
+
+            # Evaluate
+            train_error = model.eval_loss(batch)
+            train_rmse = model.eval_rmse(batch)
+            valid_rmse = model.eval_rmse(valid_data)
+            print("[{:d}-{:d}] Train error: {:3f}, Train RMSE: {:3f}; Valid RMSE: {:3f}".format(epoch, batch_iter, train_error, train_rmse, valid_rmse))
 
         # Checkpointing/early stopping
         if use_early_stop:
-            early_stop_iters += 1
+            early_stop_epochs += 1
             if valid_rmse < prev_valid_rmse:
                 prev_valid_rmse = valid_rmse
-                early_stop_iters = 0
+                early_stop_epochs = 0
                 saver.save(sess, model.model_filename)
-            elif early_stop_iters == early_stop_max_iter:
+            elif early_stop_epochs == early_stop_max_epoch:
                 print("Early stopping ({} vs. {})...".format(prev_valid_rmse, valid_rmse))
                 break
         else:
@@ -98,11 +102,11 @@ if __name__ == '__main__':
                         help='the batch size to use when doing gradient descent')
     parser.add_argument('--no-early', default=False, action='store_true',
                         help='disable early stopping')
-    parser.add_argument('--early-stop-max-iter', metavar='EARLY_STOP_MAX_ITER', type=int, default=40,
-                        help='the maximum number of iterations to let the model continue training after reaching a '
+    parser.add_argument('--early-stop-max-epoch', metavar='EARLY_STOP_MAX_EPOCH', type=int, default=40,
+                        help='the maximum number of epochs to let the model continue training after reaching a '
                              'minimum validation error')
-    parser.add_argument('--max-iters', metavar='MAX_ITERS', type=int, default=10000,
-                        help='the maximum number of iterations to allow the model to train for')
+    parser.add_argument('--max-epochs', metavar='MAX_EPOCHS', type=int, default=1000,
+                        help='the maximum number of epochs to allow the model to train for')
     parser.add_argument('--hyperparam-search-size', metavar='HYPERPARAM_SEARCH_SIZE', type=int, default=50,
                         help='when in "select" mode, the number of times to sample for random search')
 
@@ -121,8 +125,8 @@ if __name__ == '__main__':
     col_names = args.cols
     batch_size = args.batch
     use_early_stop = not(args.no_early)
-    early_stop_max_iter = args.early_stop_max_iter
-    max_iters = args.max_iters
+    early_stop_max_epoch = args.early_stop_max_epoch
+    max_epochs = args.max_epochs
 
     if mode in ('train', 'test'):
         with tf.Session() as sess:
@@ -151,8 +155,8 @@ if __name__ == '__main__':
                         os.makedirs(os.path.dirname(model.model_filename))
 
                     # Train
-                    train(model, sess, saver, train_data, valid_data, batch_size=batch_size, max_iters=max_iters,
-                          use_early_stop=use_early_stop, early_stop_max_iter=early_stop_max_iter)
+                    train(model, sess, saver, train_data, valid_data, batch_size=batch_size, max_epochs=max_epochs,
+                          use_early_stop=use_early_stop, early_stop_max_epoch=early_stop_max_epoch)
 
                 print('Loading best checkpointed model')
                 saver.restore(sess, model.model_filename)
@@ -169,7 +173,7 @@ if __name__ == '__main__':
 
         _NNMF_LAM_MIN, _NNMF_LAM_MAX = -4.0, 4.0
         _SVINNMF_VAR_MIN, _SVINNMF_VAR_MAX = -2.0, 2.0
-        _SVINNMF_KL_ITER_MIN, _SVINNMF_KL_ITER_MAX = 2.0, 4.0
+        _SVINNMF_KL_EPOCH_MIN, _SVINNMF_KL_EPOCH_MAX = 2.0, 4.0
         for _ in xrange(hyperparam_search_size):
             if model_name == 'NNMF':
                 hyperparams_list.append({'lam': 10 ** np.random.uniform(_NNMF_LAM_MIN, _NNMF_LAM_MAX)})
@@ -179,7 +183,7 @@ if __name__ == '__main__':
                     'Uprime_prior_var': 10 ** np.random.uniform(_SVINNMF_VAR_MIN, _SVINNMF_VAR_MAX),
                     'V_prior_var': 10 ** np.random.uniform(_SVINNMF_VAR_MIN, _SVINNMF_VAR_MAX),
                     'Vprime_prior_var': 10 ** np.random.uniform(_SVINNMF_VAR_MIN, _SVINNMF_VAR_MAX),
-                    'kl_full_iter': int(10 ** np.random.uniform(_SVINNMF_KL_ITER_MIN, _SVINNMF_KL_ITER_MAX))
+                    'kl_full_epoch': int(10 ** np.random.uniform(_SVINNMF_KL_EPOCH_MIN, _SVINNMF_KL_EPOCH_MAX))
                 })
 
         # Setup folder to store models
@@ -203,7 +207,7 @@ if __name__ == '__main__':
                 if model_name == 'NNMF':
                     model = NNMF(num_users, num_items, **model_params)
                 elif model_name == 'SVINNMF':
-                    model_params.update({'kl_full_iter': 200})
+                    model_params.update({'kl_full_epoch': 200})
                     model = SVINNMF(num_users, num_items, **model_params)
                 else:
                     raise NotImplementedError("Model '{}' not implemented".format(model_name))
@@ -216,8 +220,8 @@ if __name__ == '__main__':
                 train_data, valid_data, test_data = load_data(train_filename, valid_filename, test_filename,
                     delimiter=delimiter, col_names=col_names)
 
-                train(model, sess, saver, train_data, valid_data, batch_size=batch_size, max_iters=max_iters,
-                      use_early_stop=use_early_stop, early_stop_max_iter=early_stop_max_iter)
+                train(model, sess, saver, train_data, valid_data, batch_size=batch_size, max_epochs=max_epochs,
+                      use_early_stop=use_early_stop, early_stop_max_epoch=early_stop_max_epoch)
 
                 print('Loading best checkpointed model')
                 saver.restore(sess, model.model_filename)
