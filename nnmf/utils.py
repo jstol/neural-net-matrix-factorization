@@ -29,18 +29,22 @@ def build_mlp(f_input_layer, hidden_units_per_layer):
     mlp_weights = {
         'h1': tf.Variable(tf.random_uniform([num_f_inputs, hidden_units_per_layer],
                                             **_weight_init_range(num_f_inputs, hidden_units_per_layer))),
+        'b1': tf.Variable(tf.zeros([hidden_units_per_layer])),
         'h2': tf.Variable(tf.random_uniform([hidden_units_per_layer, hidden_units_per_layer],
                                             **_weight_init_range(hidden_units_per_layer, hidden_units_per_layer))),
+        'b2': tf.Variable(tf.zeros([hidden_units_per_layer])),
         'h3': tf.Variable(tf.random_uniform([hidden_units_per_layer, hidden_units_per_layer],
                                             **_weight_init_range(hidden_units_per_layer, hidden_units_per_layer))),
+        'b3': tf.Variable(tf.zeros([hidden_units_per_layer])),
         'out': tf.Variable(tf.random_uniform([hidden_units_per_layer, 1],
                                             **_weight_init_range(hidden_units_per_layer, 1))),
+        'b_out': tf.Variable(tf.zeros([1])),
     }
     # MLP layers
-    mlp_layer_1 = tf.nn.sigmoid(tf.matmul(f_input_layer, mlp_weights['h1']))
-    mlp_layer_2 = tf.nn.sigmoid(tf.matmul(mlp_layer_1, mlp_weights['h2']))
-    mlp_layer_3 = tf.nn.sigmoid(tf.matmul(mlp_layer_2, mlp_weights['h3']))
-    out = tf.matmul(mlp_layer_3, mlp_weights['out'])
+    mlp_layer_1 = tf.nn.sigmoid(tf.matmul(f_input_layer, mlp_weights['h1']) + mlp_weights['b1'])
+    mlp_layer_2 = tf.nn.sigmoid(tf.matmul(mlp_layer_1, mlp_weights['h2']) + mlp_weights['b2'])
+    mlp_layer_3 = tf.nn.sigmoid(tf.matmul(mlp_layer_2, mlp_weights['h3']) + mlp_weights['b3'])
+    out = tf.matmul(mlp_layer_3, mlp_weights['out']) + mlp_weights['b_out']
 
     return out, mlp_weights
 

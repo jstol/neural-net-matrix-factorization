@@ -30,7 +30,7 @@ def train(model, sess, saver, train_data, valid_data, batch_size, max_iters, use
     train_error = model.eval_loss(batch)
     train_rmse = model.eval_rmse(batch)
     valid_rmse = model.eval_rmse(valid_data)
-    print("{:3f} {:3f}, {:3f}".format(train_error, train_rmse, valid_rmse))
+    print("Train error: {:3f}, Train RMSE: {:3f}; Valid RMSE: {:3f}".format(train_error, train_rmse, valid_rmse))
 
     # Optimize
     prev_valid_rmse = float("Inf")
@@ -44,7 +44,7 @@ def train(model, sess, saver, train_data, valid_data, batch_size, max_iters, use
         train_error = model.eval_loss(batch)
         train_rmse = model.eval_rmse(batch)
         valid_rmse = model.eval_rmse(valid_data)
-        print("{:3f} {:3f}, {:3f}".format(train_error, train_rmse, valid_rmse))
+        print("Train error: {:3f}, Train RMSE: {:3f}; Valid RMSE: {:3f}".format(train_error, train_rmse, valid_rmse))
 
         # Checkpointing/early stopping
         if use_early_stop:
@@ -60,7 +60,7 @@ def train(model, sess, saver, train_data, valid_data, batch_size, max_iters, use
             saver.save(sess, model.model_filename)
 
 def test(model, sess, saver, test_data, train_data=None, log=True):
-    if train_data:
+    if train_data is not None:
         train_rmse = model.eval_rmse(train_data)
         if log:
             print("Final train RMSE: {}".format(train_rmse))
@@ -146,6 +146,11 @@ if __name__ == '__main__':
                     delimiter=delimiter, col_names=col_names)
 
                 if mode == 'train':
+                    # Create model directory, if needed
+                    if not os.path.exists(os.path.dirname(model.model_filename)):
+                        os.makedirs(os.path.dirname(model.model_filename))
+
+                    # Train
                     train(model, sess, saver, train_data, valid_data, batch_size=batch_size, max_iters=max_iters,
                           use_early_stop=use_early_stop, early_stop_max_iter=early_stop_max_iter)
 
