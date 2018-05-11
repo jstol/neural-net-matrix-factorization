@@ -19,4 +19,4 @@ The `scripts/` folder contains the following Python scripts:
 Each of the scripts can be invoked with the `--help` flag for more information.
 
 ## Data
-The [MovieLens 100K Dataset](https://grouplens.org/datasets/movielens/100k/) was used for this project - see the `data/ml-100k/` folder. (The 1M Dataset was also used, which can be found [here]((https://grouplens.org/datasets/movielens/1M/))).
+The [MovieLens 100K Dataset](https://grouplens.org/datasets/movielens/100k/) was used for this project - see the `data/ml-100k/` folder. (The 1M Dataset was also used, which can be found [here](https://grouplens.org/datasets/movielens/1M/)).
